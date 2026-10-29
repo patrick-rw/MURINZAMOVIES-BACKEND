@@ -1,83 +1,86 @@
+// backend/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
+
 const Movie = require('./models/Movie');
 
 const app = express();
 
-// Middleware
-// Allow requests from your Vercel frontend and local testing
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:5500', 'https://your-vercel-app.vercel.app'] 
-  // 👆 REPLACE 'https://your-vercel-app.vercel.app' with your actual Vercel URL
-}));
-app.use(express.json());
+// --- MIDDLEWARE ---
+// Allow all origins so Vercel can talk to Render
+app.use(cors()); 
+// Parse incoming JSON data
+app.use(express.json()); 
 
-// Connect to MongoDB (Fail fast)
+// --- DATABASE CONNECTION ---
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log('✅ MongoDB Connected Successfully');
-  } catch (err) {
-    console.error('❌ MongoDB Connection Error:', err.message);
-    process.exit(1); // Stop the server if DB fails
+  } catch (error) {
+    console.error('❌ MongoDB Connection Error:', error.message);
+    process.exit(1); 
   }
 };
 connectDB();
 
 // --- API ROUTES ---
 
-// 1. Get all movies (Supports ?isTrending=true filter)
+// 1. Get all movies (with optional filters)
 app.get('/api/movies', async (req, res) => {
   try {
+    const { category, isTrending } = req.query;
     let query = {};
-    if (req.query.isTrending) {
-      query.isTrending = req.query.isTrending === 'true';
-    }
-    if (req.query.category) {
-      query.category = req.query.category;
-    }
-
+    if (category) query.category = category;
+    if (isTrending) query.isTrending = isTrending === 'true';
+    
+    // Sort by newest first
     const movies = await Movie.find(query).sort({ createdAt: -1 });
     res.json(movies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching movies' });
   }
 });
 
-// 2. Get single movie by ID (CRITICAL for movie.html page)
+// 2. Get a single movie by ID
 app.get('/api/movies/:id', async (req, res) => {
   try {
     const movie = await Movie.findById(req.params.id);
-    if (!movie) return res.status(404).json({ message: 'Movie not found' });
+    if (!movie) return res.status(404).json({ error: 'Movie not found' });
     res.json(movie);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching movie' });
   }
 });
 
-// 3. Add a new movie (for admin panel)
+// 3. Admin: Add a new movie
 app.post('/api/movies', async (req, res) => {
   try {
+    console.log("Incoming Data:", req.body); // Log to Render console
     const newMovie = new Movie(req.body);
     await newMovie.save();
-    res.status(201).json({ message: 'Movie added successfully', movie: newMovie });
+    res.status(201).json(newMovie);
   } catch (err) {
+    console.error("Error saving movie:", err);
     res.status(400).json({ error: err.message });
   }
 });
 
-// 4. Delete a movie (for admin panel)
+// 4. Admin: Delete a movie
 app.delete('/api/movies/:id', async (req, res) => {
   try {
     await Movie.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Movie deleted successfully' });
+    res.json({ message: 'Movie deleted' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Server error deleting movie' });
   }
 });
 
-// Start Server
+// --- START SERVER ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
