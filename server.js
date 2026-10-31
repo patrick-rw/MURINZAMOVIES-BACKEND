@@ -14,6 +14,7 @@ const MONGO_URI = process.env.MONGO_URI;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'movie123';
 const TOKEN_SECRET = process.env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+const SITE_URL = (process.env.SITE_URL || 'https://murinzamovies.vercel.app').replace(/\/$/, '');
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -192,6 +193,25 @@ function recordAttempt(ip, ok) {
 
 // ------------------------------------------------------------ ROUTES
 app.get('/', (req, res) => res.json({ name: 'MURINZA MOVIES API', status: 'ok' }));
+
+// Sitemap for Google: the homepage + one URL per movie (updates automatically).
+app.get(
+  '/sitemap.xml',
+  wrap(async (req, res) => {
+    const movies = await Movie.find({}).select('_id updatedAt').sort({ updatedAt: -1 }).lean();
+    const urls = [
+      `<url><loc>${SITE_URL}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+      ...movies.map(
+        (m) =>
+          `<url><loc>${SITE_URL}/movie.html?id=${m._id}</loc><lastmod>${new Date(m.updatedAt).toISOString()}</lastmod><priority>0.8</priority></url>`
+      )
+    ];
+    res
+      .set('Cache-Control', 'public, max-age=3600')
+      .type('application/xml')
+      .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`);
+  })
+);
 
 app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' })
